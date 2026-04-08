@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mixtape Protocol</title>
+    <style>
+        :root {
+            --bg-color: #f4eee0;
+            --container-bg: #e6dcc6;
+            --accent-brown: #7a4a28;
+            --input-bg: #ece5d5;
+            --text-color: #5d3a1a;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            color: var(--text-color);
+            /* Prevent bounce scrolling on mobile */
+            overflow: hidden;
+        }
+
+        .cassette-container {
+            width: 90%;
+            max-width: 350px;
+            background-color: var(--container-bg);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .view {
+            display: none;
+        }
+
+        .view.active {
+            display: block;
+        }
+
+        #track-inputs {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-bottom: 10px;
+            -webkit-overflow-scrolling: touch;
+            /* Smooth scroll for iOS */
+        }
+
+        input[type="text"],
+        input[type="url"] {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 8px;
+            border: 1px solid transparent;
+            background-color: var(--input-bg);
+            border-radius: 8px;
+            box-sizing: border-box;
+            font-family: inherit;
+            font-size: 16px;
+            /* Prevents iOS zoom on focus */
+        }
+
+        .btn {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-top: 10px;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .btn-create {
+            background-color: var(--accent-brown);
+            color: white;
+        }
+
+        .btn-add {
+            background-color: transparent;
+            border: 1px dashed var(--accent-brown);
+            color: var(--accent-brown);
+            padding: 8px;
+            font-size: 0.8rem;
+        }
+
+        #player-ui {
+            border: 2px solid var(--accent-brown);
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+
+        .reel-container {
+            display: flex;
+            justify-content: space-around;
+            margin: 15px 0;
+        }
+
+        .reel {
+            width: 45px;
+            height: 45px;
+            border: 5px dashed var(--accent-brown);
+            border-radius: 50%;
+        }
+
+        @keyframes rotate {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .playing .reel {
+            animation: rotate 2s linear infinite;
+        }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 5px;
+        }
+
+        .controls-grid .btn {
+            padding: 10px 5px;
+            font-size: 0.7rem;
+        }
+
+        /* Mobile specific hidden frame */
+        #yt-frame {
+            position: absolute;
+            top: -100px;
+            left: -100px;
+            width: 1px;
+            height: 1px;
+            opacity: 0.01;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="creator-view" class="view active cassette-container">
+        <h2>Make a Mixtape</h2>
+        <input type="text" id="recipient" placeholder="Recipient Name">
+        <div id="track-inputs">
+            <input type="url" class="yt-link" placeholder="YouTube URL 1">
+        </div>
+        <button id="add-btn" class="btn btn-add" onclick="addTrackInput()">+ ADD TRACK</button>
+        <button class="btn btn-create" onclick="startPlayback()">Create & Play</button>
+    </div>
+
+    <div id="player-view" class="view cassette-container">
+        <h2 id="display-name">FOR YOU</h2>
+        <div id="player-ui">
+            <div class="reel-container" id="reel-box">
+                <div class="reel"></div>
+                <div class="reel"></div>
+            </div>
+            <div id="track-info">INITIALIZING...</div>
+            <div id="yt-frame"></div>
+
+            <button class="btn" onclick="togglePlay()">PLAY / PAUSE</button>
+            <div class="controls-grid">
+                <button class="btn" onclick="executePrevTrack()">PREV</button>
+                <button class="btn" onclick="executeNextTrack()">NEXT</button>
+                <button class="btn" onclick="location.reload()">NEW</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script>
+        let player;
+        let videoIds = [];
+        let currentTrack = 0;
+        let isPlayerReady = false;
+
+        function addTrackInput() {
+            const container = document.getElementById('track-inputs');
+            const currentCount = container.querySelectorAll('input').length;
+            if (currentCount >= 15) return alert("Limit: 15 tracks.");
+
+            const input = document.createElement('input');
+            input.type = 'url';
+            input.className = 'yt-link';
+            input.placeholder = `YouTube URL ${currentCount + 1}`;
+            container.appendChild(input);
+            container.scrollTop = container.scrollHeight;
+
+            if (currentCount + 1 === 15) document.getElementById('add-btn').style.display = 'none';
+        }
+
+        function extractVideoID(url) {
+            const pattern = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+            const match = url.match(pattern);
+            return (match && match[1]) ? match[1] : null;
+        }
+
+        function startPlayback() {
+            const inputs = document.querySelectorAll('.yt-link');
+            videoIds = Array.from(inputs).map(i => extractVideoID(i.value.trim())).filter(id => id);
+
+            if (videoIds.length === 0) return alert("Enter valid YouTube URLs.");
+
+            document.getElementById('display-name').innerText = document.getElementById('recipient').value || "FOR YOU";
+            document.getElementById('creator-view').classList.remove('active');
+            document.getElementById('player-view').classList.add('active');
+
+            initYouTubePlayer();
+        }
+
+        function initYouTubePlayer() {
+            if (player && typeof player.destroy === 'function') player.destroy();
+
+            // Origin is crucial for mobile API handshake
+            const origin = window.location.origin === "null" ? "*" : window.location.origin;
+
+            player = new YT.Player('yt-frame', {
+                height: '1',
+                width: '1',
+                videoId: videoIds[currentTrack],
+                playerVars: {
+                    'autoplay': 1,
+                    'mute': 1,
+                    'playsinline': 1, // Required for iOS
+                    'enablejsapi': 1,
+                    'origin': origin
+                },
+                events: {
+                    'onReady': (event) => {
+                        isPlayerReady = true;
+                        document.getElementById('track-info').innerText = "READY - TAP PLAY";
+                        // Most mobile browsers ignore this, requiring the manual tap below
+                        event.target.playVideo();
+                        updateUI();
+                    },
+                    'onStateChange': onPlayerStateChange,
+                    'onError': (error) => {
+                        if ([2, 101, 150].includes(error.data)) {
+                            document.getElementById('track-info').innerText = "RESTRICTED - SKIPPING";
+                            setTimeout(executeNextTrack, 2000);
+                        }
+                    }
+                }
+            });
+        }
+
+        function togglePlay() {
+            if (!isPlayerReady) return;
+            const state = player.getPlayerState();
+            if (state === YT.PlayerState.PLAYING) {
+                player.pauseVideo();
+            } else {
+                player.unMute(); // User-triggered unmute works on mobile
+                player.playVideo();
+            }
+        }
+
+        function onPlayerStateChange(event) {
+            const reelBox = document.getElementById('reel-box');
+            if (event.data === YT.PlayerState.PLAYING) {
+                reelBox.classList.add('playing');
+            } else {
+                reelBox.classList.remove('playing');
+            }
+            if (event.data === YT.PlayerState.ENDED) executeNextTrack();
+        }
+
+        function executeNextTrack() {
+            if (!isPlayerReady) return;
+            if (currentTrack < videoIds.length - 1) {
+                currentTrack++;
+                player.loadVideoById(videoIds[currentTrack]);
+                updateUI();
+            } else {
+                document.getElementById('track-info').innerText = "END OF TAPE";
+                player.stopVideo();
+            }
+        }
+
+        function executePrevTrack() {
+            if (!isPlayerReady || currentTrack === 0) return;
+            currentTrack--;
+            player.loadVideoById(videoIds[currentTrack]);
+            updateUI();
+        }
+
+        function updateUI() {
+            document.getElementById('track-info').innerText = `TRACK ${currentTrack + 1} / ${videoIds.length}`;
+        }
+    </script>
+</body>
+
+</html>
